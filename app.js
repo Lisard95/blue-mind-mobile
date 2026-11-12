@@ -7,7 +7,7 @@ import {
 const vista = document.getElementById('vista');
 const CHIAVE_CONF = 'bm-mobile-config';
 const CHIAVE_CACHE = 'bm-mobile-fm';
-const PREDEFINITI = { token: '', nome: 'Andrea Bianchini', proprietario: 'Lisard95', vault: 'light-blue-labs', branch: 'main', topic: '' };
+const PREDEFINITI = { token: '', nome: 'Andrea Bianchini', proprietario: 'Lisard95', vault: 'light-blue-labs', branch: 'main' };
 
 // --- archivio locale (può mancare: finestra privata, dati cancellati) ---
 function leggi(chiave, def) {
@@ -228,12 +228,10 @@ function vistaImpostazioni() {
 			<input id="vault" value="${esc(c.vault)}">
 			<label for="branch">Branch delle approvazioni</label>
 			<input id="branch" value="${esc(c.branch)}">
-			<label for="topic">Topic ntfy delle notifiche</label>
-			<input id="topic" autocomplete="off" value="${esc(c.topic)}" placeholder="dal file notifiche.local.json sul PC">
-			<p class="aiuto">${c.topic ? `<a href="https://ntfy.sh/${encodeURIComponent(c.topic)}" target="_blank" rel="noopener">Apri il topic</a>: nell'app ntfy, "+" e incolla il nome del topic.` : 'Le notifiche dei push arrivano dall\'app ntfy, iscritta a questo topic.'}</p>
+			<p class="aiuto">Le notifiche dei push arrivano su Telegram dal bot di Blue Mind; il bottone del messaggio apre questa app.</p>
 			<p style="display:flex;gap:8px;margin-top:18px"><button class="primario" type="submit">Salva</button><button type="button" id="prova">Prova il token</button></p>
 		</form>`;
-	const valori = () => Object.fromEntries(['token', 'nome', 'proprietario', 'vault', 'branch', 'topic'].map((k) => [k, document.getElementById(k).value.trim()]));
+	const valori = () => Object.fromEntries(['token', 'nome', 'proprietario', 'vault', 'branch'].map((k) => [k, document.getElementById(k).value.trim()]));
 	document.getElementById('form').onsubmit = (e) => {
 		e.preventDefault();
 		salva(CHIAVE_CONF, valori());
