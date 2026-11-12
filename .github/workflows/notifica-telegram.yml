@@ -31,13 +31,19 @@ jobs:
           for c in commit[:10]:
               titolo = c["message"].split("\n")[0][:120]
               autore = (c.get("author") or {}).get("name", "")
-              righe.append(f"• {esc(titolo)}" + (f" <i>({esc(autore)})</i>" if autore and autore != chi else ""))
+              link = html.escape(c.get("url", ""), quote=True)
+              righe.append(f'• <a href="{link}">{esc(c["id"][:7])}</a> {esc(titolo)}' + (f" <i>({esc(autore)})</i>" if autore and autore != chi else ""))
           if len(commit) > 10:
               righe.append(f"… e altri {len(commit) - 10}")
-          vault = repo == "light-blue-labs"
-          bottoni = [{"text": "Apri Blue Mind", "url": os.environ["APP"] + ("#/" if vault else "#/push")}]
-          if e.get("compare") and not e.get("deleted"):
-              bottoni.append({"text": "Differenze", "url": e["compare"]})
+          bottoni = []
+          if not e.get("deleted"):
+              from urllib.parse import quote
+              rivedi = f"#/rivedi/{quote(repo)}/{e['after']}?da={e.get('before', '')}&branch={quote(branch)}"
+              bottoni.append({"text": "Rivedi e approva", "url": os.environ["APP"] + rivedi})
+              if e.get("compare"):
+                  bottoni.append({"text": "Differenze", "url": e["compare"]})
+          else:
+              bottoni.append({"text": "Apri Blue Mind", "url": os.environ["APP"] + "#/push"})
           dati = json.dumps({
               "chat_id": os.environ["CHAT"], "text": "\n".join(righe)[:4000], "parse_mode": "HTML",
               "disable_web_page_preview": True, "reply_markup": {"inline_keyboard": [bottoni]},
