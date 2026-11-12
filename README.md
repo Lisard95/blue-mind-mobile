@@ -3,7 +3,7 @@
 App web (PWA) di Light Blue Labs per il telefono:
 
 - **Design**: le note del vault `in revisione`, `da rivedere`, approvate di recente e bozze. Apri una nota, la leggi e voti **Approvo / Modifiche / Respingo**. Il voto è un commit sul vault (nota, `Registro.md`, `Stato.md`) che segue la procedura di approvazione dello studio.
-- **Push**: gli ultimi push sul vault e sulle repo registrate in `Studio/Giochi.md`.
+- **Push**: gli ultimi push sul vault e sulle repo registrate in `Studio/Giochi.md`. Aprendone uno (o dal bottone "Rivedi e approva" del messaggio Telegram) vedi commit e file e voti **Approvo / Da rivedere**: una riga `revisione` nel Registro del progetto della repo (per il vault, dei progetti toccati; senza progetto in `Studio/Revisione commit.md`), e lo stesso voto sulle note di design in revisione toccate dal push.
 
 Le notifiche dei push arrivano su Telegram: i webhook di GitHub chiamano il bot di Blue Mind, e il bottone del messaggio apre questa app.
 

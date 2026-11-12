@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
 	leggiFrontmatter, impostaChiave, applicaVoto, rigaRegistro, aggiornaStato,
 	candidata, repoRegistrate, wikilinkInMarkdown, linkTabella,
+	progettoDellaRepo, progettiToccati, descriviPush, cella,
 } from '../lib/approva.js';
 
 const nota = `---
@@ -126,4 +127,23 @@ test('wikilink diventano link interni o testo', () => {
 	const p = new Set(['Progetti/T/Design/Pitch.md', 'Studio/Organigramma.md']);
 	const out = wikilinkInMarkdown('Vedi [[Progetti/T/Design/Pitch|Pitch]], [[Organigramma]], [[Manca]] e ![[img.png]]', p);
 	assert.equal(out, 'Vedi [Pitch](#/nota/Progetti%2FT%2FDesign%2FPitch.md), [Organigramma](#/nota/Studio%2FOrganigramma.md), **Manca** e *(allegato: img.png)*');
+});
+
+test('progettoDellaRepo legge la riga giusta di Giochi.md', () => {
+	const g = [
+		'| The Castle | [[Progetti/The Castle and the Fairy/The Castle and the Fairy\|P]] | [from-white-to-blue](https://github.com/Lisard95/from-white-to-blue) | x |',
+		'| Mobile | [[Strumenti/blue-mind/LEGGIMI\|Blue Mind]] | [blue-mind-mobile](https://github.com/Lisard95/blue-mind-mobile) | x |',
+		'| Libri | [[Progetti/Libri da colorare/Libri da colorare\|L]] | `github.com/Lisard95/little-inkwell` | x |',
+	].join('\n');
+	assert.equal(progettoDellaRepo(g, 'Lisard95', 'from-white-to-blue'), 'The Castle and the Fairy');
+	assert.equal(progettoDellaRepo(g, 'Lisard95', 'little-inkwell'), 'Libri da colorare');
+	assert.equal(progettoDellaRepo(g, 'Lisard95', 'blue-mind-mobile'), null);
+	assert.equal(progettoDellaRepo(g, 'Lisard95', 'from-white'), null);
+});
+
+test('progettiToccati e descriviPush', () => {
+	assert.deepEqual(progettiToccati(['Progetti/A/x.md', 'Studio/y.md', 'Progetti/A/z.md', 'Progetti/B/k.md']), ['A', 'B']);
+	const d = descriviPush({ repo: 'r', branch: 'main', esito: 'approvo', commit: [{ sha: 'abcdef123', titolo: 'Uno | due' }] });
+	assert.equal(d, 'Push su r (main), 1 commit approvato: abcdef1 Uno / due');
+	assert.equal(cella('a\\|b | c\nd'), 'a\\|b / c d');
 });

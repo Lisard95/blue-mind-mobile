@@ -1,5 +1,5 @@
 // Guscio dell'app in cache per l'avvio offline; le API di GitHub non passano mai dalla cache.
-const CACHE = 'bm-mobile-v2';
+const CACHE = 'bm-mobile-v3';
 const GUSCIO = ['./', 'index.html', 'style.css', 'app.js', 'lib/approva.js', 'lib/github.js', 'vendor/marked.min.js', 'manifest.webmanifest', 'icone/icona-192.png'];
 
 self.addEventListener('install', (e) => {

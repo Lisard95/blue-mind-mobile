@@ -2,6 +2,7 @@ import { GitHub } from './lib/github.js';
 import {
 	leggiFrontmatter, corpo, candidata, progettoDi, notaPrincipale, nomeNota, richiesti,
 	applicaVoto, rigaRegistro, aggiornaStato, linkTabella, repoRegistrate, wikilinkInMarkdown,
+	cella, progettoDellaRepo, progettiToccati, descriviPush, NOTA_REVISIONI, notaRevisioniVuota,
 } from './lib/approva.js';
 
 const vista = document.getElementById('vista');
@@ -140,6 +141,134 @@ async function vistaNota(percorso) {
 
 const PAROLE = { approvo: 'Approvi', modifiche: 'Chiedi modifiche a', respingo: 'Respingi' };
 
+/** Modifiche al vault raccolte in memoria e scritte poi in un solo commit, a partire dalla testa di main. */
+async function lavoro() {
+	const g = gh();
+	const testa = await g.testa();
+	const letti = new Map();
+	const nuovi = new Map();
+	const lav = {
+		g,
+		testa,
+		async leggi(p) {
+			if (nuovi.has(p)) return nuovi.get(p);
+			if (!letti.has(p)) letti.set(p, await g.testo(p, testa).catch((e) => (e.status === 404 ? null : Promise.reject(e))));
+			return letti.get(p);
+		},
+		scrivi(p, t) { nuovi.set(p, t); },
+		async committa(titolo, righe) {
+			const file = [...nuovi].filter(([p, t]) => t !== letti.get(p)).map(([path, testo]) => ({ path, testo }));
+			if (!file.length) throw new Error('Niente da scrivere nel vault.');
+			const corpo = [...righe, `- ${file.map((f) => f.path).join(', ')}`, '- dal telefono (Blue Mind mobile)'].join('\n');
+			return g.commit({ testaAttesa: testa, titolo, corpo, file });
+		},
+	};
+	return lav;
+}
+
+/** Voto su una nota di design: nota, Registro del progetto e, se esce dalla revisione, Stato. */
+async function votoNota(lav, percorso, voto, motivo) {
+	const c = conf();
+	const progetto = progettoDi(percorso);
+	const pReg = `Progetti/${progetto}/Registro.md`;
+	const pStato = `Progetti/${progetto}/Stato.md`;
+	const testo = await lav.leggi(percorso);
+	const tipo = leggiFrontmatter((await lav.leggi(notaPrincipale(progetto))) ?? '').tipo ?? 'gioco';
+	const r = applicaVoto({ testo, voto, nome: c.nome, motivo, oggi: oggi(), tipoProgetto: tipo });
+	lav.scrivi(percorso, r.testo);
+	const nome = nomeNota(percorso);
+	const verbo = { approvo: 'approva', modifiche: 'chiede modifiche', respingo: 'respinge' }[voto];
+	let cosa = `${nome}: ${c.nome} ${verbo}; esito ${r.esito}`;
+	if (r.esito === 'in revisione' && r.mancano.length) cosa += ` (mancano ${r.mancano.join(', ')})`;
+	if (voto !== 'approvo') cosa += ` — ${motivo.trim()}`;
+	const registro = await lav.leggi(pReg);
+	if (registro != null) lav.scrivi(pReg, rigaRegistro(registro, { data: oggi(), cosa, chi: c.nome, link: linkTabella(percorso, nome) }));
+	let daSistemare = false;
+	const stato = await lav.leggi(pStato);
+	if (stato != null && r.esito !== 'in revisione') {
+		const s = aggiornaStato(stato, percorso);
+		daSistemare = s.daSistemare;
+		lav.scrivi(pStato, s.testo);
+	}
+	return { esito: r.esito, cosa: cella(cosa), daSistemare };
+}
+
+// --- revisione di un push (dal bottone "Rivedi" del messaggio Telegram) ---
+async function vistaRivedi(repo, testaPush, base, branch) {
+	vista.innerHTML = `<p class="vuoto">Leggo il push…</p>`;
+	const c = conf();
+	const g = gh();
+	const dati = await g.push1(repo, testaPush, base);
+	const vault = repo === c.vault;
+	const idx = vault ? await caricaIndice() : null;
+	const inRevisione = vault
+		? dati.file.filter((f) => f.stato !== 'removed' && idx.note.some((n) => n.path === f.path && n.fm.approvazione === 'in revisione')).map((f) => f.path)
+		: [];
+	vista.innerHTML = `
+		<p class="meta"><a href="#/push">← Push</a></p>
+		<h1>${esc(repo)} · ${esc(branch)}</h1>
+		<p class="meta">${dati.commit.length} commit · <a href="${esc(dati.url)}" target="_blank" rel="noopener">differenze su GitHub</a></p>
+		${dati.commit.map((x) => `<a class="scheda" href="${esc(x.url)}" target="_blank" rel="noopener"><strong>${esc(x.titolo)}</strong><span class="meta">${esc(x.sha.slice(0, 7))} · ${esc(x.autore)}</span></a>`).join('')}
+		<details><summary class="meta">${dati.file.length} file cambiati</summary><ul class="meta">${dati.file.slice(0, 200).map((f) => `<li>${esc(f.stato)} · ${esc(f.path)}</li>`).join('')}</ul></details>
+		${inRevisione.length ? `<h2>Design in revisione toccato (${inRevisione.length})</h2><p class="aiuto">Con il voto sul push voti anche queste note, a nome di ${esc(c.nome)}.</p>${inRevisione.map((p) => `<a class="scheda" href="#/nota/${encodeURIComponent(p)}"><strong>${esc(nomeNota(p))}</strong><span class="meta">${esc(progettoDi(p))}</span></a>`).join('')}` : ''}
+		${vault && branch !== c.branch ? `<p class="aiuto">Push su <b>${esc(branch)}</b>: lo stato del design si legge da <b>${esc(c.branch)}</b>; le note cambiate solo su questo branch non si votano finché non arrivano lì.</p>` : ''}
+		<div class="voto">
+			<textarea id="motivo" rows="2" placeholder="Motivo (obbligatorio per Da rivedere)"></textarea>
+			<div class="bottoni" style="grid-template-columns:1fr 1fr">
+				<button class="verde" data-push="approvo">Approvo</button>
+				<button class="arancio" data-push="modifiche">Da rivedere</button>
+			</div>
+			<p class="aiuto">Scrive nel Registro del progetto (o in Revisione commit) con un commit su <code>${esc(c.branch)}</code> del vault.</p>
+		</div>`;
+	for (const b of vista.querySelectorAll('[data-push]')) {
+		b.onclick = () => revisionaPush({ repo, branch, dati, inRevisione, voto: b.dataset.push });
+	}
+}
+
+async function revisionaPush({ repo, branch, dati, inRevisione, voto }, tentativo = 1) {
+	const motivo = document.getElementById('motivo')?.value ?? '';
+	if (voto !== 'approvo' && !motivo.trim()) { avviso('Scrivi il motivo.', true); return; }
+	if (tentativo === 1 && !confirm(`${voto === 'approvo' ? 'Approvi' : 'Segni da rivedere'} il push su ${repo} (${dati.commit.length} commit)?`)) return;
+	const bottoni = vista.querySelectorAll('[data-push]');
+	bottoni.forEach((b) => { b.disabled = true; });
+	try {
+		const c = conf();
+		const lav = await lavoro();
+		// Dove scrivere: il Registro del progetto della repo; per il vault, quelli dei progetti toccati.
+		const giochi = (await lav.leggi('Studio/Giochi.md')) ?? '';
+		const progetti = repo === c.vault ? progettiToccati(dati.file.map((f) => f.path)) : [progettoDellaRepo(giochi, c.proprietario, repo)].filter(Boolean);
+		const registri = [];
+		for (const p of progetti) {
+			const pr = `Progetti/${p}/Registro.md`;
+			if ((await lav.leggi(pr)) != null) registri.push(pr);
+		}
+		if (!registri.length) {
+			if ((await lav.leggi(NOTA_REVISIONI)) == null) lav.scrivi(NOTA_REVISIONI, notaRevisioniVuota(oggi()));
+			registri.push(NOTA_REVISIONI);
+		}
+		const cosa = descriviPush({ repo, branch, commit: dati.commit, esito: voto, motivo });
+		const link = `[${dati.commit.length > 1 ? 'differenze' : dati.commit[0].sha.slice(0, 7)}](${dati.url})`;
+		for (const pr of registri) lav.scrivi(pr, rigaRegistro(await lav.leggi(pr), { data: oggi(), tipo: 'revisione', cosa, chi: c.nome, link }));
+		// Il voto sul push vale anche per le note di design in revisione che il push ha toccato.
+		const righe = [`- ${cosa}`];
+		const saltate = [];
+		for (const p of inRevisione) {
+			try {
+				const r = await votoNota(lav, p, voto === 'approvo' ? 'approvo' : 'modifiche', motivo);
+				righe.push(`- ${r.cosa}`);
+			} catch (e) { saltate.push(`${nomeNota(p)}: ${e.message}`); }
+		}
+		await lav.committa(`Revisione: push su ${repo} (${c.nome})`, righe);
+		indice = null;
+		avviso(`Fatto: push ${voto === 'approvo' ? 'approvato' : 'da rivedere'}${inRevisione.length - saltate.length ? `, ${inRevisione.length - saltate.length} note votate` : ''}.${saltate.length ? ` Saltate: ${saltate.join('; ')}` : ''}`);
+		location.hash = '#/push';
+	} catch (e) {
+		if (tentativo < 2 && /expectedHeadOid|expected branch|head oid/i.test(e.message)) return revisionaPush({ repo, branch, dati, inRevisione, voto }, 2);
+		avviso(e.message, true);
+		bottoni.forEach((b) => { b.disabled = false; });
+	}
+}
+
 async function vota(percorso, voto, tentativo = 1) {
 	const motivo = document.getElementById('motivo')?.value ?? '';
 	if (voto !== 'approvo' && !motivo.trim()) { avviso('Scrivi il motivo.', true); return; }
@@ -148,36 +277,11 @@ async function vota(percorso, voto, tentativo = 1) {
 	bottoni.forEach((b) => { b.disabled = true; });
 	try {
 		const c = conf();
-		const g = gh();
-		const testa = await g.testa();
-		const progetto = progettoDi(percorso);
-		const pReg = `Progetti/${progetto}/Registro.md`;
-		const pStato = `Progetti/${progetto}/Stato.md`;
-		const [testo, principale, registro, stato] = await Promise.all([
-			g.testo(percorso, testa),
-			g.testo(notaPrincipale(progetto), testa).catch(() => ''),
-			g.testo(pReg, testa).catch(() => null),
-			g.testo(pStato, testa).catch(() => null),
-		]);
-		const tipo = leggiFrontmatter(principale).tipo ?? 'gioco';
-		const r = applicaVoto({ testo, voto, nome: c.nome, motivo, oggi: oggi(), tipoProgetto: tipo });
-		const nome = nomeNota(percorso);
-		const verbo = { approvo: 'approva', modifiche: 'chiede modifiche', respingo: 'respinge' }[voto];
-		let cosa = `${nome}: ${c.nome} ${verbo}; esito ${r.esito}`;
-		if (r.esito === 'in revisione' && r.mancano.length) cosa += ` (mancano ${r.mancano.join(', ')})`;
-		if (voto !== 'approvo') cosa += ` — ${motivo.trim().replace(/\|/g, '/').replace(/\s+/g, ' ')}`;
-		const file = [{ path: percorso, testo: r.testo }];
-		if (registro != null) file.push({ path: pReg, testo: rigaRegistro(registro, { data: oggi(), cosa, chi: c.nome, link: linkTabella(percorso, nome) }) });
-		let daSistemare = false;
-		if (stato != null && r.esito !== 'in revisione') {
-			const s = aggiornaStato(stato, percorso);
-			daSistemare = s.daSistemare;
-			if (s.testo !== stato) file.push({ path: pStato, testo: s.testo });
-		}
-		const corpoCommit = [`- ${cosa}`, `- ${file.map((f) => f.path).join(', ')}`, '- dal telefono (Blue Mind mobile)'].join('\n');
-		await g.commit({ testaAttesa: testa, titolo: `Approvazione: ${nome} (${c.nome})`, corpo: corpoCommit, file });
+		const lav = await lavoro();
+		const r = await votoNota(lav, percorso, voto, motivo);
+		await lav.committa(`Approvazione: ${nomeNota(percorso)} (${c.nome})`, [`- ${r.cosa}`]);
 		indice = null;
-		avviso(`Fatto: ${r.esito}.${daSistemare ? ' In Stato.md la nota è citata insieme ad altre: sistemala dal PC.' : ''}`);
+		avviso(`Fatto: ${r.esito}.${r.daSistemare ? ' In Stato.md la nota è citata insieme ad altre: sistemala dal PC.' : ''}`);
 		await vistaNota(percorso);
 	} catch (e) {
 		if (tentativo < 2 && /expectedHeadOid|expected branch|head oid/i.test(e.message)) return vota(percorso, voto, 2);
@@ -204,7 +308,7 @@ async function vistaPush() {
 	vista.querySelector('.vuoto').remove();
 	vista.insertAdjacentHTML('beforeend', `
 		<p class="meta">Repo seguite: ${repo.map(esc).join(', ')}</p>
-		${push.map((p) => `<a class="scheda push" href="https://github.com/${esc(c.proprietario)}/${esc(p.repo)}/commit/${esc(p.testa)}" target="_blank" rel="noopener">
+		${push.map((p) => `<a class="scheda push" href="#/rivedi/${encodeURIComponent(p.repo)}/${esc(p.testa)}?da=${esc(p.prima ?? '')}&branch=${encodeURIComponent(p.branch)}">
 			<strong>${esc(p.repo)} · ${esc(p.branch)}</strong>
 			<span class="meta">${esc(p.chi)} · ${esc(quando(p.quando))}${p.quanti ? ` · ${p.quanti} commit` : ''}</span>
 			<ul class="commit">${p.commit.slice(0, 5).map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
@@ -252,11 +356,18 @@ function vistaImpostazioni() {
 // --- navigazione ---
 async function vai() {
 	const h = location.hash || '#/';
-	const nome = h.startsWith('#/push') ? 'push' : h.startsWith('#/impostazioni') ? 'impostazioni' : 'lista';
+	const nome = h.startsWith('#/push') || h.startsWith('#/rivedi') ? 'push' : h.startsWith('#/impostazioni') ? 'impostazioni' : 'lista';
 	for (const a of document.querySelectorAll('nav a')) a.classList.toggle('attiva', a.dataset.vista === nome);
 	if (!conf().token && nome !== 'impostazioni') { location.hash = '#/impostazioni'; return; }
 	try {
 		if (h.startsWith('#/nota/')) await vistaNota(decodeURIComponent(h.slice(7)));
+		else if (h.startsWith('#/rivedi/')) {
+			// #/rivedi/<repo>/<sha di testa>?da=<sha di base>&branch=<branch>
+			const [percorso, query = ''] = h.slice(9).split('?');
+			const [repo, testa] = percorso.split('/').map(decodeURIComponent);
+			const q = new URLSearchParams(query);
+			await vistaRivedi(repo, testa, q.get('da'), q.get('branch') ?? '');
+		}
 		else if (nome === 'push') await vistaPush();
 		else if (nome === 'impostazioni') vistaImpostazioni();
 		else await vistaLista();
