@@ -1,0 +1,7 @@
+{
+  "name": "blue-mind-mobile",
+  "private": true,
+  "type": "module",
+  "description": "Blue Mind mobile: revisione e approvazione del design del vault Light Blue Labs dal telefono",
+  "scripts": { "test": "node --test test/*.test.js" }
+}
